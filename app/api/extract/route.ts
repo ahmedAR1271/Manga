@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractImageUrls, parseTargetUrl } from "@/lib/extract";
+import { extractImages, parseTargetUrl } from "@/lib/extract";
 
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
@@ -58,11 +58,16 @@ export async function POST(request: NextRequest) {
   const html = (await response.text()).slice(0, MAX_HTML_BYTES);
   // response.url reflects the final URL after redirects, so relative image
   // paths resolve correctly even when the chapter URL redirects.
-  const images = extractImageUrls(html, response.url || target.href);
+  const { images, method, confidence } = extractImages(
+    html,
+    response.url || target.href,
+  );
 
   return NextResponse.json({
     source: response.url || target.href,
     count: images.length,
+    method,
+    confidence,
     images,
   });
 }

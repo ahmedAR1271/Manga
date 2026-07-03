@@ -6,8 +6,16 @@ import { FormEvent, useState } from "react";
 type ExtractResponse = {
   source?: string;
   count?: number;
+  method?: "script" | "container" | "generic" | "none";
+  confidence?: number;
   images?: string[];
   error?: string;
+};
+
+const METHOD_LABELS: Record<string, string> = {
+  script: "reader script payload",
+  container: "chapter container",
+  generic: "page scan",
 };
 
 export default function ReaderPage() {
@@ -16,6 +24,10 @@ export default function ReaderPage() {
   const [error, setError] = useState<string | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [source, setSource] = useState<string | null>(null);
+  const [extraction, setExtraction] = useState<{
+    method: string;
+    confidence: number;
+  } | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,6 +37,7 @@ export default function ReaderPage() {
     setError(null);
     setImages([]);
     setSource(null);
+    setExtraction(null);
 
     try {
       const response = await fetch("/api/extract", {
@@ -46,6 +59,11 @@ export default function ReaderPage() {
       }
       setImages(data.images);
       setSource(data.source ?? null);
+      setExtraction(
+        data.method && data.method !== "none" && data.confidence !== undefined
+          ? { method: data.method, confidence: data.confidence }
+          : null,
+      );
     } catch {
       setError("Something went wrong while contacting the server.");
     } finally {
@@ -103,6 +121,13 @@ export default function ReaderPage() {
           <p className="mt-6 text-sm text-black/50 dark:text-white/50">
             {images.length} page{images.length === 1 ? "" : "s"} from{" "}
             <span className="break-all">{source}</span>
+            {extraction && (
+              <>
+                {" "}
+                · via {METHOD_LABELS[extraction.method] ?? extraction.method} (
+                {Math.round(extraction.confidence * 100)}% confidence)
+              </>
+            )}
           </p>
         )}
       </section>
