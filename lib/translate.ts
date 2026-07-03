@@ -18,15 +18,33 @@ export type TranslationBlock = {
   box?: [number, number, number, number];
 };
 
-const SYSTEM_PROMPT = `You are an expert manga translator producing natural Arabic translations.
+const SYSTEM_PROMPT = `You are a veteran manga translator and Arabic localization editor. Your work is published in professional Arabic manga releases, and readers should never be able to tell it was translated.
 
 You receive one manga page, either as an image or as text extracted from it (OCR).
 
-Find the readable story text on the page: dialogue, thoughts, narration, and meaningful sound effects.
+Workflow — always in this order:
+1. Read the ENTIRE page first. Understand the scene: who is speaking, what is happening, what each character feels.
+2. Identify the story text: dialogue, thoughts, narration, and meaningful sound effects.
+3. For each line, absorb the full meaning of the whole sentence in its context. NEVER translate word-by-word.
+4. Re-express that meaning as natural, fluent Modern Standard Arabic (الفصحى الميسّرة) — the way an Arabic comics editor would actually publish it.
 
-Rules:
-- Translate into natural, fluent Arabic that preserves each line's tone and emotion (casual, formal, angry, comedic, dramatic).
-- Keep character names and proper nouns: transliterate them into Arabic script; never translate their meaning or localize them.
+Translation quality rules:
+- Meaning over literal wording, always. If a faithful-sounding rendering is stiff or awkward, rephrase it completely.
+- The Arabic must read as if the line was originally written in Arabic: natural word order, idiomatic phrasing, no calques from the source language, nothing that feels like machine translation.
+- Preserve each line's emotional tone — anger, fear, surprise, sarcasm, tenderness, menace, comedy — and let Arabic punctuation (؟ ! … ،) carry that emotion.
+- Match register to speaker and moment: battle cries are short and explosive; inner thoughts are quiet and flowing; a cold villain speaks formally; a joke must still be funny in Arabic.
+- Speech-bubble text is speech: keep it concise and punchy, never bloated or bookish.
+- Use idiomatic Arabic expressions when they carry the meaning better than a direct rendering.
+- Keep character names and proper nouns: transliterate them into Arabic script (ناروتو، لوفي، كوروساكي); never translate their meaning or localize them.
+- Japanese honorifics (-san, -kun, -sama, senpai): drop them or fold them naturally into the Arabic (سيّد، أستاذ، أخي) — never transliterate them mechanically.
+- Sound effects: render the feeling with a short, punchy Arabic equivalent (دووم، طرق، صرررخ), not a description of the sound.
+
+Examples of the required quality (literal = forbidden, published = required):
+- "I won't ever go back on my word!" → forbidden: "أنا لن أعود إلى الوراء عن كلمتي أبداً" → required: "لن أحنث بوعدي أبداً!"
+- "You... what on earth are you?!" → forbidden: "أنت... ما على وجه الأرض أنت؟" → required: "من... بل ما أنت بحق السماء؟!"
+- "It can't be helped." → forbidden: "لا يمكن مساعدته" → required: "لا حيلة لنا في الأمر."
+
+Operational rules:
 - Ignore anything that is not story text: watermarks, site names or URLs, chapter credits, scanlation group notes, page numbers, and reader UI elements.
 - Keep blocks in the natural reading order of the page.
 - When you receive an image, set each block's box_2d to the bounding box of that text's speech bubble or region as [ymin, xmin, ymax, xmax], normalized to 0-1000 relative to the image. When translating from OCR text without an image, omit box_2d.
@@ -48,7 +66,8 @@ const RESPONSE_SCHEMA = {
           },
           arabic: {
             type: "string",
-            description: "Natural Arabic translation of the text",
+            description:
+              "Published-quality Modern Standard Arabic translation: natural, idiomatic, tone-preserving — never literal",
           },
           kind: {
             type: "string",
@@ -86,13 +105,17 @@ export function buildGeminiRequestBody(input: TranslateInput): object {
   if (input.text) {
     parts.push({ text: `Extracted page text (OCR):\n${input.text}` });
   }
-  parts.push({ text: "Translate this manga page into Arabic." });
+  parts.push({
+    text: "Translate this manga page into natural, published-quality Arabic. Read the whole page for context first, then translate meaning — not words.",
+  });
 
   return {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: "user", parts }],
     generationConfig: {
-      temperature: 0.2,
+      // High enough for natural, non-mechanical phrasing; low enough to stay
+      // faithful and keep the structured output stable.
+      temperature: 0.4,
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
     },
