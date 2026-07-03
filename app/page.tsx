@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="flex flex-1 flex-col">
@@ -8,7 +10,12 @@ export default function Home() {
           </span>
           <nav className="flex items-center gap-6 text-sm text-black/60 dark:text-white/60">
             <span>Library</span>
-            <span>Reader</span>
+            <Link
+              href="/reader"
+              className="transition-colors hover:text-foreground"
+            >
+              Reader
+            </Link>
             <span>About</span>
           </nav>
         </div>
@@ -27,9 +34,12 @@ export default function Home() {
             explanations, and a smarter reading experience.
           </p>
           <div className="mt-10 flex items-center justify-center gap-4">
-            <button className="rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85">
+            <Link
+              href="/reader"
+              className="rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            >
               Get started
-            </button>
+            </Link>
             <button className="rounded-full border border-black/15 px-6 py-3 text-sm font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10">
               Browse library
             </button>
