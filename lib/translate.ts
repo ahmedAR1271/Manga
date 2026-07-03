@@ -10,6 +10,12 @@ export type TranslationBlock = {
   /** Natural Arabic translation. */
   arabic: string;
   kind: TranslationBlockKind;
+  /**
+   * Bounding box of the text region as [ymin, xmin, ymax, xmax], normalized
+   * to 0–1000 (Gemini's box_2d convention). Absent for text-only input or
+   * when the model omits it.
+   */
+  box?: [number, number, number, number];
 };
 
 const SYSTEM_PROMPT = `You are an expert manga translator producing natural Arabic translations.
@@ -23,6 +29,7 @@ Rules:
 - Keep character names and proper nouns: transliterate them into Arabic script; never translate their meaning or localize them.
 - Ignore anything that is not story text: watermarks, site names or URLs, chapter credits, scanlation group notes, page numbers, and reader UI elements.
 - Keep blocks in the natural reading order of the page.
+- When you receive an image, set each block's box_2d to the bounding box of that text's speech bubble or region as [ymin, xmin, ymax, xmax], normalized to 0-1000 relative to the image. When translating from OCR text without an image, omit box_2d.
 - If the page contains no translatable story text, return an empty blocks array.
 
 Return only JSON matching the provided schema.`;
@@ -46,6 +53,12 @@ const RESPONSE_SCHEMA = {
           kind: {
             type: "string",
             enum: [...BLOCK_KINDS],
+          },
+          box_2d: {
+            type: "array",
+            items: { type: "integer" },
+            description:
+              "Text region bounding box [ymin, xmin, ymax, xmax], 0-1000",
           },
         },
         required: ["original", "arabic", "kind"],
@@ -90,6 +103,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function parseBox(
+  value: unknown,
+): [number, number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length !== 4) return undefined;
+  const clamped: number[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "number" || !Number.isFinite(entry)) return undefined;
+    clamped.push(Math.min(1000, Math.max(0, Math.round(entry))));
+  }
+  const [ymin, xmin, ymax, xmax] = clamped;
+  if (ymax <= ymin || xmax <= xmin) return undefined;
+  return [ymin, xmin, ymax, xmax];
+}
+
 /**
  * Extracts the structured translation blocks from a Gemini generateContent
  * response. Returns null when the response doesn't contain parseable JSON in
@@ -129,7 +156,8 @@ export function parseGeminiResponse(payload: unknown): TranslationBlock[] | null
     )
       ? (entry.kind as TranslationBlockKind)
       : "dialogue";
-    blocks.push({ original, arabic, kind });
+    const box = parseBox(entry.box_2d);
+    blocks.push({ original, arabic, kind, ...(box ? { box } : {}) });
   }
   return blocks;
 }

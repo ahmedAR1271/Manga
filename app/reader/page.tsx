@@ -13,6 +13,8 @@ type TranslationBlock = {
   original: string;
   arabic: string;
   kind: string;
+  /** [ymin, xmin, ymax, xmax] normalized to 0–1000, when Gemini located the text. */
+  box?: [number, number, number, number];
 };
 
 type PageTranslation =
@@ -39,13 +41,6 @@ const METHOD_LABELS: Record<string, string> = {
   script: "reader script payload",
   container: "chapter container",
   generic: "page scan",
-};
-
-const KIND_LABELS: Record<string, string> = {
-  dialogue: "Dialogue",
-  thought: "Thought",
-  narration: "Narration",
-  sfx: "SFX",
 };
 
 const API_KEY_STORAGE = "manga-ai-reader:gemini-api-key";
@@ -346,22 +341,23 @@ export default function ReaderPage() {
                 data-page-index={index}
                 className="w-full"
               >
-                {/* Remote manga hosts are arbitrary, so next/image optimization
-                    can't be configured for them — use a plain img tag. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrl}
-                  alt={`Page ${index + 1}`}
-                  loading="lazy"
-                  className="w-full rounded-md"
-                />
-                {translateEnabled && (
-                  <TranslationPanel
-                    state={translations[imageUrl]}
-                    missingKey={missingKey}
-                    onRetry={() => void translatePage(imageUrl, index)}
+                <div className="relative w-full overflow-hidden rounded-md">
+                  {/* Remote manga hosts are arbitrary, so next/image optimization
+                      can't be configured for them — use a plain img tag. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl}
+                    alt={`Page ${index + 1}`}
+                    loading="lazy"
+                    className="w-full"
                   />
-                )}
+                  {translateEnabled && !missingKey && (
+                    <TranslationOverlay
+                      state={translations[imageUrl]}
+                      onRetry={() => void translatePage(imageUrl, index)}
+                    />
+                  )}
+                </div>
                 <figcaption className="py-1 text-center text-xs text-black/40 dark:text-white/40">
                   Page {index + 1} of {images.length}
                 </figcaption>
@@ -374,60 +370,101 @@ export default function ReaderPage() {
   );
 }
 
-function TranslationPanel({
+const OVERLAY_TEXT_CLASSES =
+  "rounded-md bg-black/70 text-white backdrop-blur-[2px] text-center leading-snug text-[clamp(0.65rem,2.3vw,0.95rem)]";
+
+function TranslationOverlay({
   state,
-  missingKey,
   onRetry,
 }: {
   state: PageTranslation | undefined;
-  missingKey: boolean;
   onRetry: () => void;
 }) {
-  if (missingKey) return null;
+  // Not yet requested — the observer will pick it up on scroll.
+  if (!state) return null;
 
-  if (!state || state.status === "loading") {
+  if (state.status === "loading") {
     return (
-      <div className="mt-2 rounded-lg border border-black/10 px-4 py-3 text-sm text-black/50 dark:border-white/10 dark:text-white/50">
-        {state ? "Translating…" : "Translation queued — scroll to load."}
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+        <span className="animate-pulse rounded-full bg-black/70 px-4 py-1.5 text-xs text-white backdrop-blur-sm">
+          Translating…
+        </span>
       </div>
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="mt-2 flex items-center justify-between gap-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
-        <span>{state.message}</span>
-        <button
-          onClick={onRetry}
-          className="shrink-0 rounded-full border border-red-500/40 px-4 py-1.5 text-xs font-medium transition-colors hover:bg-red-500/10"
-        >
-          Retry
-        </button>
+      <div className="absolute inset-x-3 bottom-3 flex justify-center">
+        <div className="flex max-w-full items-center gap-3 rounded-full bg-black/75 py-1.5 pl-4 pr-1.5 text-xs text-red-300 backdrop-blur-sm">
+          <span className="truncate">{state.message}</span>
+          <button
+            onClick={onRetry}
+            className="shrink-0 rounded-full border border-white/30 px-3 py-1.5 font-medium text-white transition-colors hover:bg-white/10"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
   if (state.blocks.length === 0) {
     return (
-      <div className="mt-2 rounded-lg border border-black/10 px-4 py-3 text-sm text-black/50 dark:border-white/10 dark:text-white/50">
-        No translatable text found on this page.
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+        <span className="rounded-full bg-black/60 px-3 py-1 text-[11px] text-white/80 backdrop-blur-sm">
+          No text on this page
+        </span>
       </div>
     );
   }
 
+  const positioned = state.blocks.filter((block) => block.box);
+  const unpositioned = state.blocks.filter((block) => !block.box);
+
   return (
-    <div className="mt-2 space-y-3 rounded-lg border border-black/10 px-4 py-4 dark:border-white/10">
-      {state.blocks.map((block, blockIndex) => (
-        <div key={blockIndex}>
-          <p className="text-xs text-black/45 dark:text-white/45">
-            {KIND_LABELS[block.kind] ?? block.kind}
-            {block.original !== "" && <> · {block.original}</>}
-          </p>
-          <p dir="rtl" lang="ar" className="mt-1 leading-relaxed">
+    <div className="pointer-events-none absolute inset-0">
+      {positioned.map((block, blockIndex) => {
+        const [ymin, xmin, ymax, xmax] = block.box!;
+        // Percentages of the image container, so the overlay scales with the
+        // image on any screen size. Widen very small regions (SFX) enough to
+        // be readable, keep the bubble inside the right edge, and center it
+        // vertically on the text region so it covers the original text.
+        const width = Math.min(92, Math.max((xmax - xmin) / 10, 14));
+        const left = Math.min(xmin / 10, 98 - width);
+        const centerY = (ymin + ymax) / 2 / 10;
+        return (
+          <p
+            key={blockIndex}
+            dir="rtl"
+            lang="ar"
+            title={block.original}
+            className={`pointer-events-auto absolute -translate-y-1/2 px-1.5 py-1 sm:px-2 sm:py-1.5 ${OVERLAY_TEXT_CLASSES}`}
+            style={{
+              top: `${centerY}%`,
+              left: `${left}%`,
+              width: `${width}%`,
+            }}
+          >
             {block.arabic}
           </p>
+        );
+      })}
+      {unpositioned.length > 0 && (
+        <div className="absolute inset-x-2 bottom-2 flex flex-col items-center gap-1">
+          {unpositioned.map((block, blockIndex) => (
+            <p
+              key={blockIndex}
+              dir="rtl"
+              lang="ar"
+              title={block.original}
+              className={`pointer-events-auto max-w-full px-3 py-1.5 ${OVERLAY_TEXT_CLASSES}`}
+            >
+              {block.arabic}
+            </p>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
