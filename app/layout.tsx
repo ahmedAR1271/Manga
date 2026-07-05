@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { site } from "@/config/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Manga AI Reader",
-  description: "Read manga with AI-powered translation and assistance.",
+  title: `${site.brand} — ${site.tagline}`,
+  description: site.description,
 };
 
 export default function RootLayout({
